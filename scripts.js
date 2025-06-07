@@ -215,7 +215,7 @@ function updateHistoryList() {
 function searchLocationOnMap() {
     const input = document.getElementById("domain-input").value;
     if (input.trim() !== "") {
-        fetch(`https://dev.virtualearth.net/REST/v1/Locations?q=${input}&key=ApBQnD4ziGaBvRvRDcrtIIzVxfePinmMLo4nhc4fp6-2fZEduKVNmpPFu7suLFOM`)
+        fetch(`https://dev.virtualearth.net/REST/v1/Locations?q=${input}&key=you key`)
             .then(response => response.json())
             .then(data => {
                 const location = data.resourceSets[0].resources[0].point.coordinates;
