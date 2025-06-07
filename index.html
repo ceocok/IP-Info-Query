@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>IP 域名信息查询</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="description" content="查询IP地址和域名的详细信息，包括地理位置、运营商等。" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <div class="container">
+        <h1>IP 域名信息查询</h1>
+        <div id="results" class="card loading">
+            <div id="result" class="loading">查询你的国内 IP...</div>
+            <div id="user-ip" class="loading">查询访问未封锁网站 IP...</div>
+            <div id="blocked-site-ip" class="loading">查询你访问谷歌服务 IP...</div>
+            <div id="dns-info" class="loading">
+                <input type="text" id="domain-input" list="history-list" placeholder="输入域名或 IP 地址进行查询" />
+                <datalist id="history-list"></datalist>
+                <button id="submit-btn" onclick="getDNSInfo()">查询</button>
+            </div>
+            <div id="query-result-container"></div>
+            <div id="map-container"></div>
+        </div>
+    </div>
+    <script src="scripts.js" async defer></script>
+    <script type="text/javascript" src="https://www.bing.com/api/maps/mapcontrol?key=ApBQnD4ziGaBvRvRDcrtIIzVxfePinmMLo4nhc4fp6-2fZEduKVNmpPFu7suLFOM" async defer></script>
+</body>
+</html>
