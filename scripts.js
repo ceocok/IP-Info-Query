@@ -3,7 +3,7 @@ let marker;
 
 function loadMapScenario() {
     map = new Microsoft.Maps.Map(document.getElementById('map-container'), {
-        credentials: 'you key', // Replace with your Bing Maps API key
+        credentials: 'ApBQnD4ziGaBvRvRDcrtIIzVxfePinmMLo4nhc4fp6-2fZEduKVNmpPFu7suLFOM', // Replace with your Bing Maps API key
         mapTypeId: Microsoft.Maps.MapTypeId.aerial, // Change map type to aerial
     });
     map.setOptions({
