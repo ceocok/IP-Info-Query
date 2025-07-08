@@ -1,14 +1,35 @@
 let map;
-let marker;
+let userMarker; // 用于标记用户位置
+let queryMarker; // 用于标记查询结果的位置
+let queryLine; // 用于连接两个位置的线
 
 function loadMapScenario() {
-    map = new Microsoft.Maps.Map(document.getElementById('map-container'), {
-        credentials: 'ApBQnD4ziGaBvRvRDcrtIIzVxfePinmMLo4nhc4fp6-2fZEduKVNmpPFu7suLFOM', // Replace with your Bing Maps API key
-        mapTypeId: Microsoft.Maps.MapTypeId.aerial, // Change map type to aerial
+    // 1. 定义不同的地图图层
+    const satelliteMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, etc.'
     });
-    map.setOptions({
-        showDashboard: false
+
+    const streetMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     });
+
+    // 2. 初始化地图，并默认加载卫星地图
+    map = L.map('map-container', {
+        center: [39.9042, 116.4074],
+        zoom: 5,
+        layers: [satelliteMap] // 默认显示的图层
+    });
+
+    // 3. 创建图层组，用于切换控件
+    const baseLayers = {
+        "卫星地图": satelliteMap,
+        "街道地图": streetMap
+    };
+
+    // 4. 添加图层切换控件到地图上
+    L.control.layers(baseLayers).addTo(map);
+    
+    // 原有的功能函数
     getUserLocation();
     getUserIP();
     getBlockedSiteIP();
@@ -16,17 +37,24 @@ function loadMapScenario() {
     updateHistoryList();
 }
 
+
 function getUserLocation() {
     if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 const { latitude, longitude } = position.coords;
-                const userLocation = new Microsoft.Maps.Location(latitude, longitude);
+                const userLocation = [latitude, longitude];
 
-                map.setView({ center: userLocation, zoom: 16 });
+                map.setView(userLocation, 16);
 
-                marker = new Microsoft.Maps.Pushpin(userLocation, { title: "您的位置" });
-                map.entities.push(marker);
+                // 如果已有用户标记，先移除
+                if (userMarker) {
+                    userMarker.remove();
+                }
+
+                // 添加新的用户标记
+                userMarker = L.marker(userLocation).addTo(map)
+                    .bindPopup("<b>您的位置</b>").openPopup();
             },
             (error) => {
                 console.error("Error getting user's location:", error);
@@ -57,15 +85,11 @@ function getBlockedSiteIP() {
         .catch((error) => console.error(error));
 }
 
-// 替换后的 getResultData，使用 https://ipv4_ct.itdog.cn 接口
 function getResultData() {
-    // 第一步：获取当前 IP
     fetch("https://ipv4_ct.itdog.cn")
         .then((response) => response.json())
         .then((data) => {
             const ip = data.ip;
-
-            // 第二步：根据 IP 调用 ipwho.is 查询详细信息
             return fetch(`https://ipwho.is/${ip}`);
         })
         .then((response) => response.json())
@@ -98,22 +122,20 @@ function deg2rad(deg) {
 
 function getDNSInfo() {
     const input = document.getElementById("domain-input").value.trim();
+    if (!input) return;
 
     const isIPv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(input);
-    const isIPv6 = /^[a-fA-F0-9:]+$/.test(input);  // 简单判断是否是 IPv6
+    const isIPv6 = /^[a-fA-F0-9:]+$/.test(input);
 
     const fetchIPData = (ip) => fetch(`https://ipapi.co/${ip}/json/`).then(response => response.json());
 
     const fetchDomainData = async (domain) => {
-        // 优先 A（IPv4），再 AAAA（IPv6）
         let response = await fetch(`https://dns.alidns.com/resolve?name=${domain}&type=A`);
         let data = await response.json();
-
         if (!data.Answer || data.Answer.length === 0) {
             response = await fetch(`https://dns.alidns.com/resolve?name=${domain}&type=AAAA`);
             data = await response.json();
         }
-
         return data;
     };
 
@@ -125,11 +147,9 @@ function getDNSInfo() {
                 document.getElementById("query-result-container").innerHTML = "<p>查询失败，请输入有效的 IP 地址。</p>";
             });
     } else {
-        // 输入为域名
         fetchDomainData(input)
             .then(data => {
                 if (!data.Answer || data.Answer.length === 0) throw new Error("无解析记录");
-
                 const ipAddress = data.Answer[0].data;
                 return fetchIPData(ipAddress);
             })
@@ -154,38 +174,60 @@ function displayResult(data, input) {
         return;
     }
 
-    const targetLocation = new Microsoft.Maps.Location(data.latitude, data.longitude);
-    map.setView({ center: targetLocation, zoom: 12 });
+    const targetLocation = [data.latitude, data.longitude];
 
-    if (marker) {
-        map.entities.remove(marker);
+    // 移除上一次的查询标记和连接线
+    if (queryMarker) {
+        queryMarker.remove();
+    }
+    if (queryLine) {
+        queryLine.remove();
     }
 
-    marker = new Microsoft.Maps.Pushpin(targetLocation);
-    map.entities.push(marker);
+    // 添加新的查询标记
+    queryMarker = L.marker(targetLocation).addTo(map);
 
-    // 计算当前位置与目标位置距离
+    // 获取用户当前位置，以计算距离并绘制连接线
     if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 const { latitude, longitude } = position.coords;
-                const distance = getDistance(latitude, longitude, data.latitude, data.longitude);
-                console.log(`与查询位置的距离：${distance} km`);
+                const userLocation = [latitude, longitude];
 
-                // 可选：用 Infobox 显示距离
-                const infobox = new Microsoft.Maps.Infobox(targetLocation, {
-                    title: "查询结果",
-                    description: `距您 ${distance} 公里`,
-                    visible: true
-                });
-                infobox.setMap(map);
+                // 如果用户标记已存在，更新其位置，否则创建一个新的
+                if (userMarker) {
+                    userMarker.setLatLng(userLocation);
+                } else {
+                    userMarker = L.marker(userLocation).addTo(map).bindPopup("<b>您的位置</b>");
+                }
+                
+                // 计算距离并更新查询标记的弹窗内容
+                const distance = getDistance(latitude, longitude, data.latitude, data.longitude);
+                const popupContent = `<b>查询结果</b><br>距您 ${distance} 公里`;
+                queryMarker.bindPopup(popupContent).openPopup();
+
+                // 绘制连接您和查询位置的线
+                queryLine = L.polyline([userLocation, targetLocation], {
+                    color: 'blue',
+                    weight: 3,
+                    opacity: 0.7
+                }).addTo(map);
+
+                // 自动调整地图视野，以完整显示两个点和它们之间的线
+                map.fitBounds(queryLine.getBounds(), { padding: [50, 50] });
             },
             (error) => {
+                // 如果获取用户位置失败，则仅显示查询结果的位置
                 console.error("获取当前位置失败：", error);
+                queryMarker.bindPopup("<b>查询结果</b>").openPopup();
+                map.setView(targetLocation, 12);
             }
         );
     } else {
+        // 如果浏览器不支持地理定位，也仅显示查询结果的位置
         console.warn("浏览器不支持定位");
+        queryMarker.bindPopup("<b>查询结果</b>").openPopup();
+        map.setView(targetLocation, 12);
     }
 
     saveToHistory(input);
@@ -212,33 +254,41 @@ function updateHistoryList() {
     });
 }
 
-function searchLocationOnMap() {
-    const input = document.getElementById("domain-input").value;
-    if (input.trim() !== "") {
-        fetch(`https://dev.virtualearth.net/REST/v1/Locations?q=${input}&key=you key`)
-            .then(response => response.json())
-            .then(data => {
-                const location = data.resourceSets[0].resources[0].point.coordinates;
-                map.setView({ center: new Microsoft.Maps.Location(location[0], location[1]), zoom: 12 });
+async function searchLocationOnMap() {
+    const input = document.getElementById("domain-input").value.trim();
+    if (input === "") return;
 
-                if (marker) {
-                    map.entities.remove(marker);
-                }
+    try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(input)}&format=json&limit=1`);
+        const data = await response.json();
 
-                marker = new Microsoft.Maps.Pushpin(new Microsoft.Maps.Location(location[0], location[1]));
-                map.entities.push(marker);
-            })
-            .catch(error => console.error('Error:', error));
+        if (data && data.length > 0) {
+            const location = data[0];
+            const coordinates = [parseFloat(location.lat), parseFloat(location.lon)];
+            map.setView(coordinates, 12);
+
+            // 使用 queryMarker 来显示地理搜索结果
+            if (queryMarker) {
+                queryMarker.remove();
+            }
+             // 如果有连接线，也一并移除
+            if (queryLine) {
+                queryLine.remove();
+            }
+            queryMarker = L.marker(coordinates).addTo(map).bindPopup(location.display_name).openPopup();
+        }
+    } catch (error) {
+        console.error('Error with location search:', error);
     }
 }
 
 window.addEventListener("load", () => {
-    loadMapScenario();
+    setTimeout(loadMapScenario, 0); 
+    
     const domainInput = document.getElementById("domain-input");
     domainInput.addEventListener("keyup", function (event) {
         if (event.key === "Enter") {
             getDNSInfo();
         }
-        searchLocationOnMap();
     });
 });
