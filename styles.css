@@ -148,3 +148,31 @@ h1::before {
         height: 400px;
     }
 }
+
+/* 【新增】自定义定位按钮的样式 */
+.leaflet-control-locate {
+    /* 使用内联 SVG 作为背景图标，这样就不需要额外的图片文件了 */
+    /* 这是一个瞄准镜/十字线图标 */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2L12 6M12 18L12 22M22 12L18 12M6 12L2 12M19.07 4.93L16.24 7.76M7.76 16.24L4.93 19.07M19.07 19.07L16.24 16.24M7.76 7.76L4.93 4.93'%3E%3C/path%3E%3Ccircle cx='12' cy='12' r='3'%3E%3C/circle%3E%3C/svg%3E");
+    background-size: 20px 20px; /* 图标大小 */
+    background-position: center;
+    background-repeat: no-repeat;
+    display: block;
+    width: 34px; /* 按钮宽度 */
+    height: 34px; /* 按钮高度 */
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+/* 继承 Leaflet 默认的 bar 样式，使其与其他控件（如缩放按钮）外观一致 */
+.leaflet-bar a.leaflet-control-locate,
+.leaflet-bar a.leaflet-control-locate:hover {
+    color: #333;
+    background-color: #fff;
+    border-bottom: 1px solid #ccc;
+    line-height: 34px;
+}
+
+.leaflet-bar a.leaflet-control-locate:hover {
+    background-color: #f4f4f4; /* 鼠标悬停时的背景色 */
+}

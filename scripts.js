@@ -1,7 +1,8 @@
 let map;
-let userMarker; // 用于标记用户位置
-let queryMarker; // 用于标记查询结果的位置
-let queryLine; // 用于连接两个位置的线
+let userMarker;     // 用于标记用户位置
+let queryMarker;    // 用于标记查询结果的位置
+let queryLine;      // 用于连接两个位置的线
+let userLocation = null; // **【新增】** 用于存储用户位置坐标，这是解决问题的关键
 
 function loadMapScenario() {
     // 1. 定义不同的地图图层
@@ -28,6 +29,38 @@ function loadMapScenario() {
 
     // 4. 添加图层切换控件到地图上
     L.control.layers(baseLayers).addTo(map);
+
+    // **【新增功能开始】**
+    // 5. 创建并添加一个自定义的“定位我的位置”按钮
+    L.Control.Locate = L.Control.extend({
+        onAdd: function(map) {
+            // 创建一个 div 容器，并赋予它 Leaflet 的标准样式类
+            const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+            const link = L.DomUtil.create('a', 'leaflet-control-locate', container);
+            link.href = '#';
+            link.title = '定位我的位置'; // 鼠标悬停时显示的文字
+
+            // 阻止点击事件冒泡到地图
+            L.DomEvent.on(link, 'click', L.DomEvent.stopPropagation)
+                      .on(link, 'click', L.DomEvent.preventDefault)
+                      .on(link, 'click', () => {
+                          // 按钮点击逻辑：
+                          if (userLocation) {
+                              // 如果我们已经知道了用户位置，就平滑地飞过去
+                              map.flyTo(userLocation, 16); // 16是缩放级别
+                          } else {
+                              // 如果还不知道，就调用函数去获取
+                              getUserLocation();
+                          }
+                      });
+            
+            return container;
+        }
+    });
+
+    // 将新创建的控件添加到地图的左下角
+    new L.Control.Locate({ position: 'bottomleft' }).addTo(map);
+    // **【新增功能结束】**
     
     // 原有的功能函数
     getUserLocation();
@@ -38,33 +71,35 @@ function loadMapScenario() {
 }
 
 
+
 function getUserLocation() {
     if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 const { latitude, longitude } = position.coords;
-                const userLocation = [latitude, longitude];
+                // **【修改】** 将获取到的位置存储在全局变量中
+                userLocation = [latitude, longitude]; 
 
                 map.setView(userLocation, 16);
 
-                // 如果已有用户标记，先移除
                 if (userMarker) {
                     userMarker.remove();
                 }
 
-                // 添加新的用户标记
                 userMarker = L.marker(userLocation).addTo(map)
                     .bindPopup("<b>您的位置</b>").openPopup();
             },
             (error) => {
-                console.error("Error getting user's location:", error);
+                // 如果获取失败，userLocation 将保持为 null
+                console.error("无法获取您的位置，距离信息将不可用:", error.message);
             }
         );
     } else {
-        console.error("Geolocation is not supported by this browser.");
+        console.error("您的浏览器不支持地理定位功能。");
     }
 }
 
+// ... getUserIP, getBlockedSiteIP, getResultData, getDistance, deg2rad 函数保持不变 ...
 function getUserIP() {
     fetch("https://ipapi.co/json/")
         .then((response) => response.json())
@@ -120,6 +155,7 @@ function deg2rad(deg) {
     return deg * (Math.PI / 180);
 }
 
+
 function getDNSInfo() {
     const input = document.getElementById("domain-input").value.trim();
     if (!input) return;
@@ -162,70 +198,56 @@ function getDNSInfo() {
 }
 
 
+// **【重点修改区域】**
 function displayResult(data, input) {
     const resultContainer = document.getElementById("query-result-container");
     resultContainer.innerHTML =
-        `<p>IP 地址：${input}</p>` +
-        `<p>归属地：${data.city}, ${data.region}, ${data.country_name}</p>` +
-        `<p>运营商：${data.org}</p>`;
+        `<p>IP 地址：${data.ip || input}</p>` +
+        `<p>归属地：${data.city || 'N/A'}, ${data.region || 'N/A'}, ${data.country_name || 'N/A'}</p>` +
+        `<p>运营商：${data.org || 'N/A'}</p>`;
 
+    // 检查API返回结果是否包含坐标信息
     if (!data.latitude || !data.longitude) {
-        console.warn("缺少坐标信息，无法在地图上显示。");
+        console.warn("查询结果缺少坐标信息，无法在地图上显示。");
+        // 如果之前有查询标记，最好也移除掉
+        if (queryMarker) queryMarker.remove();
+        if (queryLine) queryLine.remove();
         return;
     }
 
     const targetLocation = [data.latitude, data.longitude];
 
     // 移除上一次的查询标记和连接线
-    if (queryMarker) {
-        queryMarker.remove();
-    }
-    if (queryLine) {
-        queryLine.remove();
-    }
-
+    if (queryMarker) queryMarker.remove();
+    if (queryLine) queryLine.remove();
+    
     // 添加新的查询标记
     queryMarker = L.marker(targetLocation).addTo(map);
 
-    // 获取用户当前位置，以计算距离并绘制连接线
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const { latitude, longitude } = position.coords;
-                const userLocation = [latitude, longitude];
+    // **【逻辑重构】**
+    // 不再重新获取用户位置，而是检查 `userLocation` 变量是否已有值
+    if (userLocation) {
+        // 如果用户位置已知，则计算距离、画线、并显示完整信息
+        const distance = getDistance(userLocation[0], userLocation[1], data.latitude, data.longitude);
+        const popupContent = `<b>查询结果</b><br>距您 ${distance} 公里`;
+        queryMarker.bindPopup(popupContent).openPopup();
 
-                // 如果用户标记已存在，更新其位置，否则创建一个新的
-                if (userMarker) {
-                    userMarker.setLatLng(userLocation);
-                } else {
-                    userMarker = L.marker(userLocation).addTo(map).bindPopup("<b>您的位置</b>");
-                }
-                
-                // 计算距离并更新查询标记的弹窗内容
-                const distance = getDistance(latitude, longitude, data.latitude, data.longitude);
-                const popupContent = `<b>查询结果</b><br>距您 ${distance} 公里`;
-                queryMarker.bindPopup(popupContent).openPopup();
+        // 绘制连接线
+        queryLine = L.polyline([userLocation, targetLocation], {
+            color: 'blue',
+            weight: 3,
+            opacity: 0.7
+        }).addTo(map);
 
-                // 绘制连接您和查询位置的线
-                queryLine = L.polyline([userLocation, targetLocation], {
-                    color: 'blue',
-                    weight: 3,
-                    opacity: 0.7
-                }).addTo(map);
+        // 自动调整地图视野，以完整显示两个点和它们之间的线
+        // 注意：这里的userMarker可能不存在，但我们有userLocation，所以可以创建一个包含两个点的边界
+        const bounds = L.latLngBounds([userLocation, targetLocation]);
+        map.fitBounds(bounds, { padding: [50, 50] });
 
-                // 自动调整地图视野，以完整显示两个点和它们之间的线
-                map.fitBounds(queryLine.getBounds(), { padding: [50, 50] });
-            },
-            (error) => {
-                // 如果获取用户位置失败，则仅显示查询结果的位置
-                console.error("获取当前位置失败：", error);
-                queryMarker.bindPopup("<b>查询结果</b>").openPopup();
-                map.setView(targetLocation, 12);
-            }
-        );
     } else {
-        // 如果浏览器不支持地理定位，也仅显示查询结果的位置
-        console.warn("浏览器不支持定位");
+        // 如果用户位置未知（用户拒绝授权或获取失败）
+        // 则只显示查询结果的位置，不显示距离和连线
+        console.warn("用户位置未知，仅显示查询目标。");
         queryMarker.bindPopup("<b>查询结果</b>").openPopup();
         map.setView(targetLocation, 12);
     }
@@ -234,6 +256,7 @@ function displayResult(data, input) {
 }
 
 
+// ... saveToHistory, updateHistoryList, searchLocationOnMap 和 事件监听器 保持不变 ...
 function saveToHistory(query) {
     let history = JSON.parse(localStorage.getItem("queryHistory")) || [];
     if (!history.includes(query)) {
@@ -254,6 +277,8 @@ function updateHistoryList() {
     });
 }
 
+// 注意: 这个函数 searchLocationOnMap 在您的HTML中没有被任何按钮调用，
+// 如果您打算使用它，可能需要添加一个对应的按钮。
 async function searchLocationOnMap() {
     const input = document.getElementById("domain-input").value.trim();
     if (input === "") return;
@@ -283,6 +308,7 @@ async function searchLocationOnMap() {
 }
 
 window.addEventListener("load", () => {
+    // 延迟执行以确保地图容器已准备好
     setTimeout(loadMapScenario, 0); 
     
     const domainInput = document.getElementById("domain-input");
