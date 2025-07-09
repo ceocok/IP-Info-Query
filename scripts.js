@@ -101,11 +101,13 @@ function getUserLocation() {
 
 // ... getUserIP, getBlockedSiteIP, getResultData, getDistance, deg2rad 函数保持不变 ...
 function getUserIP() {
-    fetch("https://ipapi.co/json/")
+    // 【已修改】使用新的API
+    fetch("http://ip-api.com/json/?lang=zh-CN")
         .then((response) => response.json())
         .then((data) => {
             const userIpElem = document.getElementById("user-ip");
-            userIpElem.textContent = `${data.ip} ${data.country} ${data.city}`;
+            // 【已修改】使用新API返回的字段
+            userIpElem.textContent = `${data.query} ${data.country} ${data.city}`;
         })
         .catch((error) => console.error(error));
 }
@@ -125,12 +127,14 @@ function getResultData() {
         .then((response) => response.json())
         .then((data) => {
             const ip = data.ip;
-            return fetch(`https://ipwho.is/${ip}`);
+            // 【已修改】这里也换成新的 API
+            return fetch(`http://ip-api.com/json/${ip}?lang=zh-CN`);
         })
         .then((response) => response.json())
         .then((info) => {
             const resultElem = document.getElementById("result");
-            resultElem.textContent = `${info.ip} ${info.region} ${info.city} ${info.connection?.org}`;
+            // 【已修改】使用新API返回的字段
+            resultElem.textContent = `${info.query} ${info.country} ${info.regionName} ${info.city} ${info.isp || info.org}`;
         })
         .catch((error) => console.error("Error getting result data:", error));
 }
@@ -155,7 +159,7 @@ function deg2rad(deg) {
     return deg * (Math.PI / 180);
 }
 
-
+// 主要修改点
 function getDNSInfo() {
     const input = document.getElementById("domain-input").value.trim();
     if (!input) return;
@@ -163,7 +167,8 @@ function getDNSInfo() {
     const isIPv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(input);
     const isIPv6 = /^[a-fA-F0-9:]+$/.test(input);
 
-    const fetchIPData = (ip) => fetch(`https://ipapi.co/${ip}/json/`).then(response => response.json());
+    // 【已修改】这里是核心修改，替换了原来的API请求函数
+    const fetchIPData = (ip) => fetch(`http://ip-api.com/json/${ip}?lang=zh-CN`).then(response => response.json());
 
     const fetchDomainData = async (domain) => {
         let response = await fetch(`https://dns.alidns.com/resolve?name=${domain}&type=A`);
@@ -189,7 +194,8 @@ function getDNSInfo() {
                 const ipAddress = data.Answer[0].data;
                 return fetchIPData(ipAddress);
             })
-            .then(ipData => displayResult(ipData, ipData.ip))
+            // 【已修改】传递新API返回的IP地址 (data.query)
+            .then(ipData => displayResult(ipData, ipData.query))
             .catch(error => {
                 console.error("查询域名出错：", error);
                 document.getElementById("query-result-container").innerHTML = "<p>查询失败，请输入有效的域名。</p>";
@@ -198,24 +204,25 @@ function getDNSInfo() {
 }
 
 
-// **【重点修改区域】**
+// 【重点修改区域】
 function displayResult(data, input) {
     const resultContainer = document.getElementById("query-result-container");
+    // 【已修改】使用新API返回的字段名，并优化了显示顺序
     resultContainer.innerHTML =
-        `<p>IP 地址：${data.ip || input}</p>` +
-        `<p>归属地：${data.city || 'N/A'}, ${data.region || 'N/A'}, ${data.country_name || 'N/A'}</p>` +
-        `<p>运营商：${data.org || 'N/A'}</p>`;
+        `<p>IP 地址：${data.query || input}</p>` +
+        `<p>归属地：${data.country || ''} ${data.regionName || ''} ${data.city || 'N/A'}</p>` +
+        `<p>运营商：${data.isp || data.org || 'N/A'}</p>`; // 优先使用 isp，备选 org
 
-    // 检查API返回结果是否包含坐标信息
-    if (!data.latitude || !data.longitude) {
+    // 【已修改】检查新API返回的坐标字段 (lat, lon)
+    if (!data.lat || !data.lon) {
         console.warn("查询结果缺少坐标信息，无法在地图上显示。");
-        // 如果之前有查询标记，最好也移除掉
         if (queryMarker) queryMarker.remove();
         if (queryLine) queryLine.remove();
         return;
     }
 
-    const targetLocation = [data.latitude, data.longitude];
+    // 【已修改】使用新API返回的坐标字段 (lat, lon)
+    const targetLocation = [data.lat, data.lon];
 
     // 移除上一次的查询标记和连接线
     if (queryMarker) queryMarker.remove();
@@ -224,11 +231,9 @@ function displayResult(data, input) {
     // 添加新的查询标记
     queryMarker = L.marker(targetLocation).addTo(map);
 
-    // **【逻辑重构】**
-    // 不再重新获取用户位置，而是检查 `userLocation` 变量是否已有值
     if (userLocation) {
-        // 如果用户位置已知，则计算距离、画线、并显示完整信息
-        const distance = getDistance(userLocation[0], userLocation[1], data.latitude, data.longitude);
+        // 【已修改】使用新API返回的坐标字段 (lat, lon)
+        const distance = getDistance(userLocation[0], userLocation[1], data.lat, data.lon);
         const popupContent = `<b>查询结果</b><br>距您 ${distance} 公里`;
         queryMarker.bindPopup(popupContent).openPopup();
 
@@ -239,14 +244,10 @@ function displayResult(data, input) {
             opacity: 0.7
         }).addTo(map);
 
-        // 自动调整地图视野，以完整显示两个点和它们之间的线
-        // 注意：这里的userMarker可能不存在，但我们有userLocation，所以可以创建一个包含两个点的边界
         const bounds = L.latLngBounds([userLocation, targetLocation]);
         map.fitBounds(bounds, { padding: [50, 50] });
 
     } else {
-        // 如果用户位置未知（用户拒绝授权或获取失败）
-        // 则只显示查询结果的位置，不显示距离和连线
         console.warn("用户位置未知，仅显示查询目标。");
         queryMarker.bindPopup("<b>查询结果</b>").openPopup();
         map.setView(targetLocation, 12);
@@ -256,7 +257,6 @@ function displayResult(data, input) {
 }
 
 
-// ... saveToHistory, updateHistoryList, searchLocationOnMap 和 事件监听器 保持不变 ...
 function saveToHistory(query) {
     let history = JSON.parse(localStorage.getItem("queryHistory")) || [];
     if (!history.includes(query)) {
@@ -277,8 +277,6 @@ function updateHistoryList() {
     });
 }
 
-// 注意: 这个函数 searchLocationOnMap 在您的HTML中没有被任何按钮调用，
-// 如果您打算使用它，可能需要添加一个对应的按钮。
 async function searchLocationOnMap() {
     const input = document.getElementById("domain-input").value.trim();
     if (input === "") return;
@@ -292,11 +290,9 @@ async function searchLocationOnMap() {
             const coordinates = [parseFloat(location.lat), parseFloat(location.lon)];
             map.setView(coordinates, 12);
 
-            // 使用 queryMarker 来显示地理搜索结果
             if (queryMarker) {
                 queryMarker.remove();
             }
-             // 如果有连接线，也一并移除
             if (queryLine) {
                 queryLine.remove();
             }
@@ -308,7 +304,6 @@ async function searchLocationOnMap() {
 }
 
 window.addEventListener("load", () => {
-    // 延迟执行以确保地图容器已准备好
     setTimeout(loadMapScenario, 0); 
     
     const domainInput = document.getElementById("domain-input");
