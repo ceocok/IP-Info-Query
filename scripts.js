@@ -2,7 +2,17 @@ let map;
 let userMarker;     // 用于标记用户位置
 let queryMarker;    // 用于标记查询结果的位置
 let queryLine;      // 用于连接两个位置的线
-let userLocation = null; // **【新增】** 用于存储用户位置坐标，这是解决问题的关键
+let userLocation = null; // 用于存储用户位置坐标
+
+// 【新增】定义一个自定义的红色小图标
+const redIcon = new L.Icon({
+    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    iconSize: [20, 33],      // 尺寸比默认(25x41)小一点
+    iconAnchor: [10, 33],    // 锚点位置调整
+    popupAnchor: [1, -30],   // 弹出窗口的锚点调整
+    shadowSize: [33, 33]     // 阴影大小调整
+});
 
 function loadMapScenario() {
     // 1. 定义不同的地图图层
@@ -44,7 +54,6 @@ function getUserLocation() {
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 const { latitude, longitude } = position.coords;
-                // **【修改】** 将获取到的位置存储在全局变量中
                 userLocation = [latitude, longitude]; 
 
                 map.setView(userLocation, 16);
@@ -53,11 +62,11 @@ function getUserLocation() {
                     userMarker.remove();
                 }
 
-                userMarker = L.marker(userLocation).addTo(map)
+                // 【修改】使用新的红色小图标来标记用户位置
+                userMarker = L.marker(userLocation, { icon: redIcon }).addTo(map)
                     .bindPopup("<b>您的位置</b>").openPopup();
             },
             (error) => {
-                // 如果获取失败，userLocation 将保持为 null
                 console.error("无法获取您的位置，距离信息将不可用:", error.message);
             }
         );
@@ -94,21 +103,16 @@ function getResultData() {
     fetch("https://ipv4_ct.itdog.cn")
         .then(response => {
             if (!response.ok) {
-                // 如果网络请求本身就失败了（比如 404, 500），则抛出错误
                 throw new Error(`网络响应失败: ${response.statusText}`);
             }
             return response.json();
         })
         .then(data => {
             const resultElem = document.getElementById("result");
-            
-            // itdog 的成功返回示例: {"type":"success","version":"IPv4","ip":"...","address":"..."}
             if (data.type === 'success' && data.ip && data.address) {
-                // 将 "中国/湖南/长沙/联通" 格式替换成空格分隔，然后显示
                 const displayText = `${data.ip} ${data.address.replace(/\//g, " ")}`;
                 resultElem.textContent = displayText;
             } else {
-                // 如果返回的格式不对或有错误信息
                 const errorMsg = data.message || '返回数据格式不正确';
                 console.error("itdog API error:", errorMsg);
                 resultElem.textContent = `获取国内 IP 信息失败: ${errorMsg}`;
@@ -187,7 +191,7 @@ function getDNSInfo() {
 }
 
 
-// **【重点修改区域】**
+// 【重点修改区域】
 function displayResult(data, input) {
     const resultContainer = document.getElementById("query-result-container");
     resultContainer.innerHTML =
@@ -195,10 +199,8 @@ function displayResult(data, input) {
         `<p>归属地：${data.city || 'N/A'}, ${data.region || 'N/A'}, ${data.country_name || 'N/A'}</p>` +
         `<p>运营商：${data.org || 'N/A'}</p>`;
 
-    // 检查API返回结果是否包含坐标信息
     if (!data.latitude || !data.longitude) {
         console.warn("查询结果缺少坐标信息，无法在地图上显示。");
-        // 如果之前有查询标记，最好也移除掉
         if (queryMarker) queryMarker.remove();
         if (queryLine) queryLine.remove();
         return;
@@ -206,41 +208,45 @@ function displayResult(data, input) {
 
     const targetLocation = [data.latitude, data.longitude];
 
-    // 移除上一次的查询标记和连接线
     if (queryMarker) queryMarker.remove();
     if (queryLine) queryLine.remove();
     
-    // 添加新的查询标记
-    queryMarker = L.marker(targetLocation).addTo(map);
+    // 【修改】使用新的红色小图标来标记查询结果
+    queryMarker = L.marker(targetLocation, { icon: redIcon }).addTo(map);
 
-    // **【逻辑重构】**
-    // 不再重新获取用户位置，而是检查 `userLocation` 变量是否已有值
     if (userLocation) {
-        // 如果用户位置已知，则计算距离、画线、并显示完整信息
         const distance = getDistance(userLocation[0], userLocation[1], data.latitude, data.longitude);
         const popupContent = `<b>查询结果</b><br>距您 ${distance} 公里`;
         queryMarker.bindPopup(popupContent).openPopup();
 
-        // 绘制连接线
-        queryLine = L.polyline([userLocation, targetLocation], {
-            color: 'blue',
-            weight: 3,
-            opacity: 0.7
-        }).addTo(map);
+        // 【修改】绘制红色的弧形连接线
+        // 1. 计算控制点以形成弧线
+        const midPoint = [(userLocation[0] + targetLocation[0]) / 2, (userLocation[1] + targetLocation[1]) / 2];
+        const latDiff = targetLocation[0] - userLocation[0];
+        const lngDiff = targetLocation[1] - userLocation[1];
+        const k = 0.2; // 控制弧线弯曲程度的系数
+        const controlPoint = [
+            midPoint[0] + k * lngDiff, // 纬度偏移
+            midPoint[1] - k * latDiff  // 经度偏移
+        ];
 
-        // 自动调整地图视野，以完整显示两个点和它们之间的线
-        // 注意：这里的userMarker可能不存在，但我们有userLocation，所以可以创建一个包含两个点的边界
+        // 2. 使用 L.curve 绘制弧线
+        queryLine = L.curve(
+            ['M', userLocation, 'Q', controlPoint, targetLocation], {
+                color: 'red', // 颜色改为红色
+                weight: 3,
+                opacity: 0.7
+            }
+        ).addTo(map);
+
         const bounds = L.latLngBounds([userLocation, targetLocation]);
         map.fitBounds(bounds, { padding: [50, 50] });
 
     } else {
-        // 如果用户位置未知（用户拒绝授权或获取失败）
-        // 则只显示查询结果的位置，不显示距离和连线
         console.warn("用户位置未知，仅显示查询目标。");
         queryMarker.bindPopup("<b>查询结果</b>").openPopup();
         map.setView(targetLocation, 12);
     }
-
     saveToHistory(input);
 }
 
@@ -266,8 +272,6 @@ function updateHistoryList() {
     });
 }
 
-// 注意: 这个函数 searchLocationOnMap 在您的HTML中没有被任何按钮调用，
-// 如果您打算使用它，可能需要添加一个对应的按钮。
 async function searchLocationOnMap() {
     const input = document.getElementById("domain-input").value.trim();
     if (input === "") return;
@@ -281,15 +285,14 @@ async function searchLocationOnMap() {
             const coordinates = [parseFloat(location.lat), parseFloat(location.lon)];
             map.setView(coordinates, 12);
 
-            // 使用 queryMarker 来显示地理搜索结果
             if (queryMarker) {
                 queryMarker.remove();
             }
-             // 如果有连接线，也一并移除
             if (queryLine) {
                 queryLine.remove();
             }
-            queryMarker = L.marker(coordinates).addTo(map).bindPopup(location.display_name).openPopup();
+            // 【修改】同样在这里使用红色图标
+            queryMarker = L.marker(coordinates, { icon: redIcon }).addTo(map).bindPopup(location.display_name).openPopup();
         }
     } catch (error) {
         console.error('Error with location search:', error);
@@ -297,7 +300,6 @@ async function searchLocationOnMap() {
 }
 
 window.addEventListener("load", () => {
-    // 延迟执行以确保地图容器已准备好
     setTimeout(loadMapScenario, 0); 
     
     const domainInput = document.getElementById("domain-input");
