@@ -66,7 +66,7 @@ function getUserLocation() {
     }
 }
 
-// ... getUserIP, getBlockedSiteIP, getResultData, getDistance, deg2rad 函数保持不变 ...
+// ... getUserIP, getBlockedSiteIP... 函数保持不变 ...
 function getUserIP() {
     fetch("https://ipapi.co/json/")
         .then((response) => response.json())
@@ -87,20 +87,42 @@ function getBlockedSiteIP() {
         .catch((error) => console.error(error));
 }
 
+
+
+// 【最终正确版本】完全按照您的要求，只使用 ipv4_ct.itdog.cn
 function getResultData() {
     fetch("https://ipv4_ct.itdog.cn")
-        .then((response) => response.json())
-        .then((data) => {
-            const ip = data.ip;
-            return fetch(`https://ipwho.is/${ip}`);
+        .then(response => {
+            if (!response.ok) {
+                // 如果网络请求本身就失败了（比如 404, 500），则抛出错误
+                throw new Error(`网络响应失败: ${response.statusText}`);
+            }
+            return response.json();
         })
-        .then((response) => response.json())
-        .then((info) => {
+        .then(data => {
             const resultElem = document.getElementById("result");
-            resultElem.textContent = `${info.ip} ${info.region} ${info.city} ${info.connection?.org}`;
+            
+            // itdog 的成功返回示例: {"type":"success","version":"IPv4","ip":"...","address":"..."}
+            if (data.type === 'success' && data.ip && data.address) {
+                // 将 "中国/湖南/长沙/联通" 格式替换成空格分隔，然后显示
+                const displayText = `${data.ip} ${data.address.replace(/\//g, " ")}`;
+                resultElem.textContent = displayText;
+            } else {
+                // 如果返回的格式不对或有错误信息
+                const errorMsg = data.message || '返回数据格式不正确';
+                console.error("itdog API error:", errorMsg);
+                resultElem.textContent = `获取国内 IP 信息失败: ${errorMsg}`;
+            }
         })
-        .catch((error) => console.error("Error getting result data:", error));
+        .catch(error => {
+            console.error("获取国内 IP 数据时出错:", error);
+            const resultElem = document.getElementById("result");
+            resultElem.textContent = "获取国内 IP 信息失败，请检查网络或浏览器控制台。";
+        });
 }
+
+// ... 您文件中的其他函数保持不变 ...
+
 
 
 function getDistance(lat1, lon1, lat2, lon2) {
